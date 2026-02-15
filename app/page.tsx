@@ -5,7 +5,7 @@ import Image from "next/image";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { appConfig } from '@/config/app.config';
-import { BUILDER_NAME, BUILDER_URL } from "@/config/branding";
+import { BUILDER_NAME, BUILDER_URL, APP_TAGLINE } from "@/config/branding";
 import { toast } from "sonner";
 
 // Import shared components
@@ -13,6 +13,8 @@ import { Connector } from "@/components/shared/layout/curvy-rect";
 import HeroFlame from "@/components/shared/effects/flame/hero-flame";
 import AsciiExplosion from "@/components/shared/effects/flame/ascii-explosion";
 import { HeaderProvider } from "@/components/shared/header/HeaderContext";
+import { BrutalistCard } from "@/components/ui/BrutalistCard";
+import { CompanionChat } from "@/components/CompanionChat";
 
 // Import hero section components
 import HomeHeroBackground from "@/components/app/(home)/sections/hero/Background/Background";
@@ -263,12 +265,12 @@ export default function HomePage() {
             <div className="relative container px-16">
               <HomeHeroBadge />
               <HomeHeroTitle />
-              <p className="text-center text-body-large">
-                Clone brand format or re-imagine any website, in seconds.
+              <p className="text-center text-body-large font-mono uppercase tracking-widest mt-4">
+                {APP_TAGLINE}
               </p>
-              <div className="flex flex-col items-center gap-4 mt-8">
+              <div className="flex flex-col items-center gap-4 mt-12">
                 <Link
-                  className="bg-black-alpha-4 hover:bg-black-alpha-6 rounded-6 px-8 lg:px-6 text-label-large h-30 lg:h-24 flex items-center gap-4 transition-all w-max"
+                  className="brutalist-button uppercase tracking-widest text-sm"
                   href="#"
                   onClick={(e) => e.preventDefault()}
                 >
@@ -570,6 +572,34 @@ export default function HomePage() {
                 </div>
               </div>
             </div>
+          </div>
+        </section>
+
+        {/* Skills Section */}
+        <section className="container mx-auto px-16 py-32 border-t-4 border-black dark:border-white mt-32">
+          <div className="flex justify-between items-end mb-16">
+            <div>
+              <h2 className="text-4xl font-bold uppercase tracking-tighter">Active Skills</h2>
+              <p className="font-mono text-sm opacity-60 mt-2">Modular plugins extending Space capabilities.</p>
+            </div>
+            <div className="brutalist-button cursor-pointer text-xs">Manage Skills</div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            <BrutalistCard 
+              title="Audit" 
+              description="Security and performance analysis for generated code. Automated RLS detection."
+              icon="🔍"
+            />
+            <BrutalistCard 
+              title="SEO" 
+              description="Optimize page structure, meta tags, and accessibility for Generative Engines (GEO)."
+              icon="📈"
+            />
+            <BrutalistCard 
+              title="Supabase" 
+              description="Auto-generate database schemas and edge functions based on prompt context."
+              icon="⚡"
+            />
           </div>
         </section>
 
@@ -898,6 +928,7 @@ export default function HomePage() {
           animation: shimmer 2s infinite;
         }
       `}</style>
+      <CompanionChat />
     </HeaderProvider>
   );
 }

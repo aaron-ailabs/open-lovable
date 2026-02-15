@@ -10,6 +10,9 @@ import { executeSearchPlan, formatSearchResultsForAI, selectTargetFile } from '@
 import { FileManifest } from '@/types/file-manifest';
 import type { ConversationState, ConversationMessage, ConversationEdit } from '@/types/conversation';
 import { appConfig } from '@/config/app.config';
+import { Companion } from '@/lib/companion';
+import { ContextAwareness } from '@/lib/context-awareness';
+import { skillRegistry } from '@/lib/skills/registry';
 
 // Force dynamic route to enable streaming
 export const dynamic = 'force-dynamic';
@@ -575,8 +578,19 @@ Remember: You are a SURGEON making a precise incision, not an artist repainting 
           }
         }
         
-        // Build system prompt with conversation awareness
-        let systemPrompt = `You are an expert React developer with perfect memory of the conversation. You maintain context across messages and remember scraped websites, generated components, and applied code. Generate clean, modern React code for Vite applications.
+        // Build system prompt with conversation and context awareness
+        const projectContext = await Companion.analyzeContext(Object.keys(global.sandboxState?.fileCache?.files || {}));
+        const brutalistContext = ContextAwareness.getBrutalistPrompt(projectContext);
+        const activeSkills = skillRegistry.getAllSkills().filter(s => s.status === 'enabled');
+
+        let systemPrompt = `You are Space Companion, an expert AI agent powering Space by Creative. 
+Generate clean, modern React code using a BRUTALIST aesthetic.
+
+${brutalistContext}
+
+## Active Skills
+${activeSkills.map(s => `- ${s.name}: ${s.description}`).join('\n')}
+
 ${conversationContext}
 
 🚨 CRITICAL RULES - YOUR MOST IMPORTANT INSTRUCTIONS:

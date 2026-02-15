@@ -76,7 +76,7 @@ const themeConfig: Config = {
     extend: {
       fontFamily: {
         sans: ["var(--font-geist-sans)", "var(--font-inter)", ...defaultTheme.fontFamily.sans],
-        mono: ["var(--font-geist-mono)", ...defaultTheme.fontFamily.mono],
+        mono: ["var(--font-space-mono)", "var(--font-geist-mono)", ...defaultTheme.fontFamily.mono],
         ascii: ["var(--font-roboto-mono)", ...defaultTheme.fontFamily.mono]
       },
       fontSize: {
