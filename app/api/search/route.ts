@@ -1,12 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { SearchSchema } from '@/lib/validations';
+import { ValidationError, AppError } from '@/lib/errors';
+import { logger } from '@/lib/logger';
 
 export async function POST(req: NextRequest) {
   try {
-    const { query } = await req.json();
+    const body = await req.json();
     
-    if (!query) {
-      return NextResponse.json({ error: 'Query is required' }, { status: 400 });
+    // Validate request body
+    const validation = SearchSchema.safeParse(body);
+    if (!validation.success) {
+      const details = validation.error.format();
+      logger.warn('Validation failed for search', { details });
+      throw new ValidationError('Invalid request data', details);
     }
+
+    const { query } = validation.data;
+
+    logger.info('Performing Firecrawl search', { query });
 
     // Use Firecrawl search to get top 10 results with screenshots
     const searchResponse = await fetch('https://api.firecrawl.dev/v1/search', {
@@ -26,7 +37,9 @@ export async function POST(req: NextRequest) {
     });
 
     if (!searchResponse.ok) {
-      throw new Error('Search failed');
+      const errorText = await searchResponse.text();
+      logger.error('Firecrawl search failed', new Error(errorText));
+      throw new AppError('Firecrawl search service unavailable', 502, 'SEARCH_SERVICE_ERROR');
     }
 
     const searchData = await searchResponse.json();
@@ -40,11 +53,19 @@ export async function POST(req: NextRequest) {
       markdown: result.markdown || '',
     })) || [];
 
+    logger.info('Search successful', { resultCount: results.length });
     return NextResponse.json({ results });
   } catch (error) {
-    console.error('Search error:', error);
+    if (error instanceof AppError) {
+      return NextResponse.json(
+        { error: error.message, code: error.code, details: error.details },
+        { status: error.statusCode }
+      );
+    }
+
+    logger.error('Unexpected error in search', error);
     return NextResponse.json(
-      { error: 'Failed to perform search' },
+      { error: 'An unexpected error occurred', code: 'INTERNAL_ERROR' },
       { status: 500 }
     );
   }

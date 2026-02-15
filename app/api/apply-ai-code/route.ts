@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { parseAIResponse, applyCodeToSandbox } from '@/lib/spaceApplyService';
+import { ApplyAICodeSchema } from '@/lib/validations';
+import { ValidationError, AppError } from '@/lib/errors';
+import { logger } from '@/lib/logger';
 import type { SandboxState } from '@/types/sandbox';
 import type { ConversationState } from '@/types/conversation';
 
@@ -13,11 +16,17 @@ declare global {
 
 export async function POST(request: NextRequest) {
   try {
-    const { response, isEdit = false, packages = [] } = await request.json();
+    const body = await request.json();
     
-    if (!response) {
-      return NextResponse.json({ error: 'response is required' }, { status: 400 });
+    // Validate request body
+    const validation = ApplyAICodeSchema.safeParse(body);
+    if (!validation.success) {
+      const details = validation.error.format();
+      logger.warn('Validation failed for apply-ai-code', { details });
+      throw new ValidationError('Invalid request data', details);
     }
+
+    const { response, isEdit, packages } = validation.data;
     
     const parsed = parseAIResponse(response);
     const morphEnabled = Boolean(isEdit && process.env.MORPH_API_KEY);
@@ -26,6 +35,7 @@ export async function POST(request: NextRequest) {
     const sandbox = global.activeSandbox || global.activeSandboxProvider;
     
     if (!sandbox) {
+      logger.info('No active sandbox found, returning parsed files only');
       return NextResponse.json({
         success: true,
         results: {
@@ -52,9 +62,16 @@ export async function POST(request: NextRequest) {
     });
     
   } catch (error) {
-    console.error('Apply AI code error:', error);
+    if (error instanceof AppError) {
+      return NextResponse.json(
+        { error: error.message, code: error.code, details: error.details },
+        { status: error.statusCode }
+      );
+    }
+
+    logger.error('Unexpected error in apply-ai-code', error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to parse AI code' },
+      { error: 'An unexpected error occurred', code: 'INTERNAL_ERROR' },
       { status: 500 }
     );
   }

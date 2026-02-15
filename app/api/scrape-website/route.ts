@@ -1,23 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
 import FirecrawlApp from '@mendable/firecrawl-js';
+import { ScrapeWebsiteSchema } from '@/lib/validations';
+import { ValidationError, AppError } from '@/lib/errors';
+import { logger } from '@/lib/logger';
 
 export async function POST(request: NextRequest) {
   try {
-    const { url, formats = ['markdown', 'html'], options = {} } = await request.json();
+    const body = await request.json();
     
-    if (!url) {
-      return NextResponse.json(
-        { error: "URL is required" },
-        { status: 400 }
-      );
+    // Validate request body
+    const validation = ScrapeWebsiteSchema.safeParse(body);
+    if (!validation.success) {
+      const details = validation.error.format();
+      logger.warn('Validation failed for scrape-website', { details });
+      throw new ValidationError('Invalid request data', details);
     }
+
+    const { url } = validation.data;
+    const formats = body.formats || ['markdown', 'html'];
+    const options = body.options || {};
+    
+    logger.info('Starting website scrape', { url });
     
     // Initialize Firecrawl with API key from environment
     const apiKey = process.env.FIRECRAWL_API_KEY;
     
     if (!apiKey) {
-      console.error("FIRECRAWL_API_KEY not configured");
-      // For demo purposes, return mock data if API key is not set
+      logger.warn("FIRECRAWL_API_KEY not configured, returning mock data");
       return NextResponse.json({
         success: true,
         data: {
@@ -39,24 +48,23 @@ export async function POST(request: NextRequest) {
     const app = new FirecrawlApp({ apiKey });
     
     // Scrape the website using the latest SDK patterns
-    // Include screenshot if requested in formats
     const scrapeResult = await app.scrape(url, {
       formats: formats,
-      onlyMainContent: options.onlyMainContent !== false, // Default to true for cleaner content
-      waitFor: options.waitFor || 2000, // Wait for dynamic content
+      onlyMainContent: options.onlyMainContent !== false,
+      waitFor: options.waitFor || 2000,
       timeout: options.timeout || 30000,
-      ...options // Pass through any additional options
+      ...options
     });
     
-    // Handle the response according to the latest SDK structure
     const result = scrapeResult as any;
     if (result.success === false) {
-      throw new Error(result.error || "Failed to scrape website");
+      logger.error('Firecrawl scrape failed', new Error(result.error), { url });
+      throw new AppError(result.error || "Failed to scrape website", 502, 'SCRAPE_SERVICE_ERROR');
     }
     
-    // The SDK may return data directly or nested
     const data = result.data || result;
     
+    logger.info('Scrape successful', { url, title: data?.metadata?.title });
     return NextResponse.json({
       success: true,
       data: {
@@ -68,31 +76,23 @@ export async function POST(request: NextRequest) {
         metadata: data?.metadata || {},
         screenshot: data?.screenshot || null,
         links: data?.links || [],
-        // Include raw data for flexibility
         raw: data
       }
     });
     
   } catch (error) {
-    console.error("Error scraping website:", error);
-    
-    // Return a more detailed error response
+    if (error instanceof AppError) {
+      return NextResponse.json(
+        { error: error.message, code: error.code, details: error.details },
+        { status: error.statusCode }
+      );
+    }
+
+    logger.error('Unexpected error in scrape-website', error);
     return NextResponse.json({
       success: false,
-      error: error instanceof Error ? error.message : "Failed to scrape website",
-      // Provide mock data as fallback for development
-      data: {
-        title: "Example Website",
-        content: "This is fallback content due to an error. Please check your configuration.",
-        description: "Error occurred while scraping",
-        markdown: `# Error\n\n${error instanceof Error ? error.message : 'Unknown error occurred'}`,
-        html: `<h1>Error</h1><p>${error instanceof Error ? error.message : 'Unknown error occurred'}</p>`,
-        metadata: {
-          title: "Error",
-          description: "Failed to scrape website",
-          statusCode: 500
-        }
-      }
+      error: error instanceof Error ? error.message : "An unexpected error occurred",
+      code: 'INTERNAL_ERROR'
     }, { status: 500 });
   }
 }

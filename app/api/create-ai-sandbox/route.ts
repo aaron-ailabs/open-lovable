@@ -1,7 +1,10 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { Sandbox } from '@vercel/sandbox';
 import type { SandboxState } from '@/types/sandbox';
 import { appConfig } from '@/config/app.config';
+import { CreateSandboxSchema } from '@/lib/validations';
+import { ValidationError, AppError } from '@/lib/errors';
+import { logger } from '@/lib/logger';
 
 // Store active sandbox globally
 declare global {
@@ -13,46 +16,63 @@ declare global {
   var sandboxCreationPromise: Promise<any> | null;
 }
 
-export async function POST() {
-  // Check if sandbox creation is already in progress
-  if (global.sandboxCreationInProgress && global.sandboxCreationPromise) {
-    console.log('[create-ai-sandbox] Sandbox creation already in progress, waiting for existing creation...');
-    try {
-      const existingResult = await global.sandboxCreationPromise;
-      console.log('[create-ai-sandbox] Returning existing sandbox creation result');
-      return NextResponse.json(existingResult);
-    } catch (error) {
-      console.error('[create-ai-sandbox] Existing sandbox creation failed:', error);
-      // Continue with new creation if the existing one failed
-    }
-  }
-
-  // Check if we already have an active sandbox
-  if (global.activeSandbox && global.sandboxData) {
-    console.log('[create-ai-sandbox] Returning existing active sandbox');
-    return NextResponse.json({
-      success: true,
-      sandboxId: global.sandboxData.sandboxId,
-      url: global.sandboxData.url
-    });
-  }
-
-  // Set the creation flag
-  global.sandboxCreationInProgress = true;
-  
-  // Create the promise that other requests can await
-  global.sandboxCreationPromise = createSandboxInternal();
-  
+export async function POST(request: NextRequest) {
   try {
+    let body = {};
+    try {
+      body = await request.json();
+    } catch (e) {
+      // Empty body is okay since we have defaults
+    }
+
+    // Validate request body
+    const validation = CreateSandboxSchema.safeParse(body);
+    if (!validation.success) {
+      const details = validation.error.format();
+      logger.warn('Validation failed for create-ai-sandbox', { details });
+      throw new ValidationError('Invalid request data', details);
+    }
+
+    // Check if sandbox creation is already in progress
+    if (global.sandboxCreationInProgress && global.sandboxCreationPromise) {
+      logger.info('Sandbox creation already in progress, waiting...');
+      try {
+        const existingResult = await global.sandboxCreationPromise;
+        return NextResponse.json(existingResult);
+      } catch (error) {
+        logger.error('Existing sandbox creation failed', error);
+      }
+    }
+
+    // Check if we already have an active sandbox
+    if (global.activeSandbox && global.sandboxData) {
+      logger.info('Returning existing active sandbox', { sandboxId: global.sandboxData.sandboxId });
+      return NextResponse.json({
+        success: true,
+        sandboxId: global.sandboxData.sandboxId,
+        url: global.sandboxData.url
+      });
+    }
+
+    // Set the creation flag
+    global.sandboxCreationInProgress = true;
+    
+    // Create the promise that other requests can await
+    global.sandboxCreationPromise = createSandboxInternal();
+    
     const result = await global.sandboxCreationPromise;
     return NextResponse.json(result);
   } catch (error) {
-    console.error('[create-ai-sandbox] Sandbox creation failed:', error);
+    if (error instanceof AppError) {
+      return NextResponse.json(
+        { error: error.message, code: error.code, details: error.details },
+        { status: error.statusCode }
+      );
+    }
+
+    logger.error('Sandbox creation failed', error);
     return NextResponse.json(
-      { 
-        error: error instanceof Error ? error.message : 'Failed to create sandbox',
-        details: error instanceof Error ? error.stack : undefined
-      },
+      { error: 'Failed to create sandbox', code: 'INTERNAL_ERROR' },
       { status: 500 }
     );
   } finally {

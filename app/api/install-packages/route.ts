@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { InstallPackagesSchema } from '@/lib/validations';
+import { ValidationError, AppError } from '@/lib/errors';
+import { logger } from '@/lib/logger';
 
 declare global {
   var activeSandbox: any;
@@ -8,46 +11,36 @@ declare global {
 
 export async function POST(request: NextRequest) {
   try {
-    const { packages } = await request.json();
-    // sandboxId not used - using global sandbox
+    const body = await request.json();
     
-    if (!packages || !Array.isArray(packages) || packages.length === 0) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Packages array is required' 
-      }, { status: 400 });
+    // Validate request body
+    const validation = InstallPackagesSchema.safeParse(body);
+    if (!validation.success) {
+      const details = validation.error.format();
+      logger.warn('Validation failed for install-packages', { details });
+      throw new ValidationError('Invalid request data', details);
     }
+
+    const { packages } = validation.data;
     
     // Validate and deduplicate package names
     const validPackages = [...new Set(packages)]
-      .filter(pkg => pkg && typeof pkg === 'string' && pkg.trim() !== '')
+      .filter(pkg => pkg && pkg.trim() !== '')
       .map(pkg => pkg.trim());
     
     if (validPackages.length === 0) {
-      return NextResponse.json({
-        success: false,
-        error: 'No valid package names provided'
-      }, { status: 400 });
-    }
-    
-    // Log if duplicates were found
-    if (packages.length !== validPackages.length) {
-      console.log(`[install-packages] Cleaned packages: removed ${packages.length - validPackages.length} invalid/duplicate entries`);
-      console.log(`[install-packages] Original:`, packages);
-      console.log(`[install-packages] Cleaned:`, validPackages);
+      throw new ValidationError('No valid package names provided');
     }
     
     // Get active sandbox provider
     const provider = global.activeSandboxProvider;
     
     if (!provider) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'No active sandbox provider available' 
-      }, { status: 400 });
+      logger.warn('No active sandbox provider available for package installation');
+      throw new AppError('No active sandbox provider available', 400, 'NO_SANDBOX_PROVIDER');
     }
     
-    console.log('[install-packages] Installing packages:', validPackages);
+    logger.info('Installing packages', { packages: validPackages });
     
     // Create a response stream for real-time updates
     const encoder = new TextEncoder();
@@ -78,7 +71,7 @@ export async function POST(request: NextRequest) {
           await new Promise(resolve => setTimeout(resolve, 1000)); // Wait a bit
         } catch (killError) {
           // It's OK if no process is found
-          console.debug('[install-packages] No existing dev server found:', killError);
+          logger.debug('No existing dev server found to stop', { error: killError });
         }
         
         // Check which packages are already installed
@@ -95,7 +88,7 @@ export async function POST(request: NextRequest) {
           try {
             packageJsonContent = await providerInstance.readFile('package.json');
           } catch (error) {
-            console.log('[install-packages] Error reading package.json:', error);
+            logger.warn('Error reading package.json', { error });
           }
           if (packageJsonContent) {
             const packageJson = JSON.parse(packageJsonContent);
@@ -128,7 +121,7 @@ export async function POST(request: NextRequest) {
             }
           }
         } catch (error) {
-          console.error('[install-packages] Error checking existing packages:', error);
+          logger.error('Error checking existing packages', error);
           // If we can't check, just try to install all packages
           packagesToInstall = validPackages;
         }
@@ -194,12 +187,14 @@ export async function POST(request: NextRequest) {
         }
         
         if (installResult.exitCode === 0) {
+          logger.info('Packages installed successfully', { packages: packagesToInstall });
           await sendProgress({ 
             type: 'success', 
             message: `Successfully installed: ${packagesToInstall.join(', ')}`,
             installedPackages: packagesToInstall
           });
         } else {
+          logger.error('Package installation failed', new Error(stderr), { packages: packagesToInstall });
           await sendProgress({ 
             type: 'error', 
             message: 'Package installation failed' 
@@ -221,6 +216,7 @@ export async function POST(request: NextRequest) {
             installedPackages: packagesToInstall
           });
         } catch (error) {
+          logger.error('Failed to restart dev server after installation', error);
           await sendProgress({ 
             type: 'error', 
             message: `Failed to restart dev server: ${(error as Error).message}` 
@@ -229,6 +225,7 @@ export async function POST(request: NextRequest) {
         
       } catch (error) {
         const errorMessage = (error as Error).message;
+        logger.error('Background package installation failed', error);
         if (errorMessage && errorMessage !== 'undefined') {
           await sendProgress({ 
             type: 'error', 
@@ -250,10 +247,18 @@ export async function POST(request: NextRequest) {
     });
     
   } catch (error) {
-    console.error('[install-packages] Error:', error);
+    if (error instanceof AppError) {
+      return NextResponse.json(
+        { error: error.message, code: error.code, details: error.details },
+        { status: error.statusCode }
+      );
+    }
+
+    logger.error('Unexpected error in install-packages', error);
     return NextResponse.json({ 
       success: false, 
-      error: (error as Error).message 
+      error: (error as Error).message,
+      code: 'INTERNAL_ERROR'
     }, { status: 500 });
   }
 }
