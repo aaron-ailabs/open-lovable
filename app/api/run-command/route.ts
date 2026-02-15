@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { SandboxProvider } from '@/lib/sandbox/types';
+import { sandboxManager } from '@/lib/sandbox/sandbox-manager';
 
-// Get active sandbox from global state (in production, use a proper state management solution)
+// Get active sandbox provider from global state
 declare global {
-  var activeSandbox: any;
+  var activeSandboxProvider: any;
 }
 
 export async function POST(request: NextRequest) {
@@ -16,45 +18,30 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
     
-    if (!global.activeSandbox) {
+    // Get provider from sandbox manager or global state
+    const provider = sandboxManager.getActiveProvider() || global.activeSandboxProvider;
+    
+    if (!provider) {
       return NextResponse.json({ 
         success: false, 
         error: 'No active sandbox' 
       }, { status: 400 });
     }
     
-    console.log(`[run-command] Executing: ${command}`);
+    console.log(`[run-command-v2] Executing: ${command}`);
     
-    // Parse command and arguments
-    const commandParts = command.trim().split(/\s+/);
-    const cmd = commandParts[0];
-    const args = commandParts.slice(1);
-    
-    // Execute command using Vercel Sandbox
-    const result = await global.activeSandbox.runCommand({
-      cmd,
-      args
-    });
-    
-    // Get output streams
-    const stdout = await result.stdout();
-    const stderr = await result.stderr();
-    
-    const output = [
-      stdout ? `STDOUT:\n${stdout}` : '',
-      stderr ? `\nSTDERR:\n${stderr}` : '',
-      `\nExit code: ${result.exitCode}`
-    ].filter(Boolean).join('');
+    const result = await provider.runCommand(command);
     
     return NextResponse.json({
-      success: true,
-      output,
+      success: result.success,
+      output: result.stdout,
+      error: result.stderr,
       exitCode: result.exitCode,
-      message: result.exitCode === 0 ? 'Command executed successfully' : 'Command completed with non-zero exit code'
+      message: result.success ? 'Command executed successfully' : 'Command failed'
     });
     
   } catch (error) {
-    console.error('[run-command] Error:', error);
+    console.error('[run-command-v2] Error:', error);
     return NextResponse.json({ 
       success: false, 
       error: (error as Error).message 
