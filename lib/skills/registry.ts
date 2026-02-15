@@ -1,11 +1,17 @@
 import { Skill, SkillManifest, SkillStatus } from './types';
 import { logger } from '@/lib/logger';
+import { auditSkill } from './audit';
+import { supabaseSkill } from './supabase';
 
 class SkillRegistry {
   private static instance: SkillRegistry;
   private skills: Map<string, Skill> = new Map();
 
-  private constructor() {}
+  private constructor() {
+    // Auto-register built-in skills
+    this.register(auditSkill);
+    this.register(supabaseSkill);
+  }
 
   public static getInstance(): SkillRegistry {
     if (!SkillRegistry.instance) {

@@ -620,6 +620,12 @@ COMPONENT RELATIONSHIPS (CHECK THESE FIRST):
 - Footer often contains nav links already
 - Menu/Hamburger is part of Header, not separate
 
+FULL-STACK & BACKEND RULES:
+- If the user asks for backend logic, database connections, or API routes:
+  - Generate the necessary utility files (e.g., src/lib/supabase.ts, src/lib/api.ts)
+  - You ARE PERMITTED to create non-component files for logic
+  - Ensure environment variables are referenced correctly (import.meta.env.VITE_...)
+
 PACKAGE USAGE RULES:
 - DO NOT use react-router-dom unless user explicitly asks for routing
 - For simple nav links in a single-page app, use scroll-to-section or href="#"
